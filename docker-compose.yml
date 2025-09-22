@@ -1,9 +1,15 @@
 version: '3.9'
 
+networks:
+  spendwise-network:
+    driver: bridge
+
 services:
+  # MySQL Database
   mysql:
     image: mysql:8.0
-    container_name: mysql_container
+    container_name: spendwise_mysql
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: expensetracker
@@ -14,22 +20,90 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/src/main/resources/database_export.sql:/docker-entrypoint-initdb.d/database_export.sql
+    networks:
+      - spendwise-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "user", "-puserpassword"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
-  currency_converter_api:
+  # Spring Boot Backend
+  backend:
     build:
-      context: .
-      dockerfile: currency-converter-Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spendwise_backend
+    restart: unless-stopped
+    environment:
+      # Database configuration
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/expensetracker
+      SPRING_DATASOURCE_USERNAME: user
+      SPRING_DATASOURCE_PASSWORD: userpassword
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "true"
+      
+      # Server configuration
+      SERVER_PORT: 8080
+      
+      # JWT configuration
+      APP_JWT_SECRET: mySecretKey
+      APP_JWT_EXPIRATION_IN_MS: 604800000
+      
+      # File upload configuration
+      APP_USER_PROFILE_UPLOAD_DIR: ./uploads/user/profile
+      
+      # Email configuration (optional - uncomment and configure if needed)
+      # SPRING_MAIL_HOST: smtp.gmail.com
+      # SPRING_MAIL_PORT: 587
+      # SPRING_MAIL_USERNAME: your_email@gmail.com
+      # SPRING_MAIL_PASSWORD: your_app_password
+      # SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
+      # SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
     ports:
-      - "8000:8000"
-    container_name: currency_converter_api_container
+      - "8080:8080"
+    volumes:
+      - backend_uploads:/app/uploads
+    networks:
+      - spendwise-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/spendwise/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
-  mock_ads_api:
+  # React Frontend
+  frontend:
     build:
-      context: .
-      dockerfile: mock-ads-Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_API_BASE_URL=http://localhost:8080/spendwise
+    container_name: spendwise_frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
     ports:
-      - "8888:8000"
-    container_name: mock_ads_api_container
+      - "3000:3000"
+    networks:
+      - spendwise-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   mysql_data:
+    driver: local
+  backend_uploads:
+    driver: local
