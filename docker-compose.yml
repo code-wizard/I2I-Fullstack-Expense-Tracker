@@ -87,14 +87,13 @@ services:
     container_name: spendwise_frontend
     restart: unless-stopped
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=dev
     ports:
       - "3000:3000"
     networks:
       - spendwise-network
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 30s
